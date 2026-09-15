@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>HR Parser</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% if user %}
+<header>
+  <div class="nav"><a href="/">Лента</a><a href="/searches">Поиски</a><a href="/channels">Каналы</a></div>
+  <div class="user">
+    {{ user.name }}
+    <form method="post" action="/logout" class="inline"><button type="submit">Выйти</button></form>
+  </div>
+</header>
+{% endif %}
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

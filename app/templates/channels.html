@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Каналы</h2>
+<p class="meta">Общий список Telegram-каналов. Каждый активный поиск проверяет все каналы из этого списка по своим ключевым словам.</p>
+
+{% if error == "duplicate" %}
+<div class="error">Такой канал уже есть в списке.</div>
+{% endif %}
+
+<div class="search-box">
+  <h3>Добавить канал</h3>
+  <form method="post" action="/channels" class="comment-form">
+    <input type="text" name="username" placeholder="username канала (без @)" required>
+    <button type="submit">Добавить</button>
+  </form>
+</div>
+
+<table>
+  <thead><tr><th>Канал</th><th></th></tr></thead>
+  <tbody>
+    {% for ch in channels %}
+    <tr>
+      <td><a href="https://t.me/{{ ch.username }}" target="_blank">@{{ ch.username }}</a></td>
+      <td>
+        <form method="post" action="/channels/{{ ch.id }}/delete" class="inline"
+              onsubmit="return confirm('Удалить канал из списка?');">
+          <button type="submit" class="delete-btn">Удалить</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="2">Каналы ещё не добавлены.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

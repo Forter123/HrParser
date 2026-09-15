@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Лента анкет</h2>
+
+<form method="get" action="/" class="filters">
+  <select name="status" onchange="this.form.submit()">
+    <option value="">Все статусы</option>
+    {% for s in statuses %}
+    <option value="{{ s.value }}" {% if selected_status == s.value %}selected{% endif %}>{{ s.value }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="source" onchange="this.form.submit()">
+    <option value="">Все источники</option>
+    {% for src in sources %}
+    <option value="{{ src }}" {% if selected_source == src %}selected{% endif %}>{{ source_labels.get(src, src) }}</option>
+    {% endfor %}
+  </select>
+
+  {% if selected_status or selected_source %}
+  <a href="/" class="btn-reset">Сбросить фильтры</a>
+  {% endif %}
+</form>
+
+<div id="feed-list">
+  {% for card in cards %}
+    {% set candidate = card.candidate %}
+    {% set latest = card.latest %}
+    {% set badge = card.badge %}
+    {% set statuses = card.statuses %}
+    {% set source_label = card.source_label %}
+    {% include "_card.html" %}
+  {% else %}
+    <p>
+      {% if selected_status or selected_source %}
+        По выбранным фильтрам анкет нет.
+      {% else %}
+        Пока нет анкет. Настройте поиск и каналы на странице «Поиски».
+      {% endif %}
+    </p>
+  {% endfor %}
+</div>
+<script src="/static/feed.js"></script>
+{% endblock %}

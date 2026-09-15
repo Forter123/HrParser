@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Поиски</h2>
+
+<div class="search-box">
+  <h3>Новый поиск</h3>
+  <form method="post" action="/searches">
+    <p><input type="text" name="title" placeholder="Название вакансии" required></p>
+    <p><input type="text" name="keywords" placeholder="Ключевые слова через запятую" required></p>
+    <p class="meta">Источники (ничего не выбрано — используются все):</p>
+    <p class="source-checkboxes">
+      {% for key, label in source_choices %}
+      <label class="source-checkbox"><input type="checkbox" name="sources" value="{{ key }}"> {{ label }}</label>
+      {% endfor %}
+    </p>
+    <button type="submit">Создать</button>
+  </form>
+</div>
+
+{% for s in searches %}
+<div class="card">
+  <div class="card-header">
+    <strong>{{ s.title }}</strong>
+    <form method="post" action="/searches/{{ s.id }}/status" class="inline">
+      <select name="status" onchange="this.form.submit()">
+        {% set labels = {"active": "Активен", "paused": "На паузе", "closed": "Закрыт"} %}
+        {% for st in ["active", "paused", "closed"] %}
+        <option value="{{ st }}" {% if s.status.value == st %}selected{% endif %}>{{ labels[st] }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+  <div class="meta">Ключевые слова: {{ s.keywords }}</div>
+  <div class="meta">Источники: {{ search_source_display[s.id] }}</div>
+</div>
+{% endfor %}
+
+<p class="meta">Список каналов, которые проверяются по всем активным поискам, — на странице <a href="/channels">«Каналы»</a>.</p>
+{% endblock %}

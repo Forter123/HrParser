@@ -1,0 +1,43 @@
+<div class="card" data-candidate-id="{{ candidate.id }}">
+  <div class="card-header">
+    <div>
+      <strong>{{ candidate.sender_name or "Без имени" }}</strong>
+      {% if badge %}<span class="badge{% if badge == 'Обновлено' %} badge-updated{% endif %}">{{ badge }}</span>{% endif %}
+    </div>
+    <form method="post" action="/candidates/{{ candidate.id }}/delete" class="inline"
+          onsubmit="return confirm('Удалить анкету безвозвратно?');">
+      <button type="submit" class="delete-btn">Удалить</button>
+    </form>
+  </div>
+  <div class="meta">
+    Источник: {{ source_label }}{% if latest and latest.source_channel %} · Канал: {{ latest.source_channel }}{% endif %}
+    · Впервые: {{ candidate.created_at.strftime("%d.%m.%Y %H:%M") }}
+    {% if latest and latest.message_link %} · <a href="{{ latest.message_link }}" target="_blank">открыть в {{ source_label }}</a>{% endif %}
+  </div>
+  {% if latest %}<div class="text">{{ latest.message_text }}</div>{% endif %}
+
+  <form method="post" action="/candidates/{{ candidate.id }}/status">
+    <select name="status" class="status-select" data-candidate-id="{{ candidate.id }}" data-value="{{ candidate.current_status.value }}"
+            onchange="this.dataset.value = this.value; this.form.submit()">
+      {% for s in statuses %}
+      <option value="{{ s.value }}" {% if candidate.current_status == s %}selected{% endif %}>{{ s.value }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  <div class="comments">
+    <div class="comments-list" data-candidate-id="{{ candidate.id }}">
+      {% for c in candidate.comments %}
+      <div class="comment">
+        <span class="author">{{ c.user.name }}</span>
+        <span class="time">{{ c.created_at.strftime("%d.%m.%Y %H:%M") }}</span>
+        <div>{{ c.text }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <form method="post" action="/candidates/{{ candidate.id }}/comments" class="comment-form">
+      <input type="text" name="text" placeholder="Комментарий..." required>
+      <button type="submit">Отправить</button>
+    </form>
+  </div>
+</div>
