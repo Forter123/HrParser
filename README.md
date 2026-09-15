@@ -1,123 +1,66 @@
-# HR Parser — Этап 0 (Telegram)
+HrParser (Не доделан)
+Что это
 
-Внутренний инструмент HR-команды: собирает анкеты соискателей из Telegram-каналов
-по заданным ключевым словам и показывает их в общей ленте с реалтайм-синхронизацией.
+Внутренний сайт HR-команды: сам собирает анкеты соискателей из Telegram, SuperJob, LinkedIn и hh.ru по заданным ключевым словам и показывает их в общей ленте с реалтайм-обновлением, статусами и комментариями.
 
-## Архитектура
+Где лежит проект
 
-- FastAPI + Jinja2 (SSR), PostgreSQL + SQLAlchemy + Alembic.
-- Источники данных — за интерфейсом `app/sources/base.Source`. Сейчас реализован
-  только Telegram (`app/sources/telegram_source.py`, через Telethon/Client API).
-  Добавление hh.ru/SuperJob/LinkedIn на будущих этапах = новый класс `Source`,
-  без изменений остального кода.
-- Опрос Telegram-каналов выполняется фоновой asyncio-задачей внутри самого
-  процесса FastAPI (запускается в `lifespan` в `app/main.py`), а не отдельным
-  процессом-воркером — это позволяет напрямую вызывать `realtime.broadcast()`
-  без межпроцессной шины (Redis и т.п. не нужны на этом масштабе). Если сайт
-  вырастет до нескольких процессов/подов, воркер стоит вынести отдельно и
-  подключить Redis pub/sub для broadcast — не требуется на Этапе 0.
-- Realtime: WebSocket `/ws/feed`, in-process `ConnectionManager` в `app/realtime.py`.
+- Сервер — этот Linux-каталог, /srv/forter/HrParser, ветка main
 
-## Настройка
+Как проходит один цикл сбора
 
-1. Скопируйте `.env.example` в `.env` и заполните:
-   - `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` — получить на https://my.telegram.org
-   - `SECRET_KEY` — случайная строка для подписи сессионных cookie
-   - `DATABASE_URL` при необходимости
+1. Планировщик просыпается раз в POLL_INTERVAL_SECONDS — app/worker/scheduler.py
+2. Берёт все активные поиски (SearchQuery.status == active)
+3. Для каждого источника фильтрует, какие поиски вообще выбрали этот источник (SearchQuery.sources, пусто = все)
+4. Источник ищет новое, отдаёт (поиск, запись) — app/sources/*.py
+5. Дедупликация по sender_id или нечёткому сходству текста (rapidfuzz) — app/services/dedup.py
+6. Запись кандидата/апдейта в БД — app/services/ingest.py
+7. Рассылка всем открытым вкладкам по WebSocket — app/realtime.py
 
-2. Поднимите Postgres (и опционально приложение) через Docker:
+Ядро (app/)
 
-   ```bash
-   docker compose up -d db
-   ```
+- main.py — точка входа, поднимает роутеры, запускает фоновый планировщик через lifespan
+- config.py — все настройки (pydantic-settings, читает .env)
+- db.py — SQLAlchemy engine/session
+- models.py — таблицы: users, search_queries, telegram_channels, candidates, candidate_entries, comments, source_seen_entries
+- auth.py / deps.py — хеширование пароля, проверка сессии
+- realtime.py — ConnectionManager для WebSocket, in-process (без Redis)
+- services/dedup.py — дедуп кандидатов
+- services/ingest.py — приём сырой записи в кандидата/апдейт
 
-3. Установите зависимости локально (для миграций/скриптов/запуска в dev-режиме):
+Роутеры (app/routers/)
 
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
+- auth.py — /login, /logout
+- feed.py — / (лента), смена статуса, карточка кандидата, удаление
+- searches.py — /searches — создание поиска, выбор источников, пауза/закрытие
+- channels.py — /channels — общий пул Telegram-каналов
+- comments.py — комментарии под карточкой
+- ws.py — /ws/feed
 
-4. Примените миграции:
+Источники (app/sources/)
 
-   ```bash
-   alembic upgrade head
-   ```
+- base.py — интерфейс Source, реестр SOURCE_CHOICES (ключи для выбора источников в поиске)
+- telegram_source.py — Telethon, сканирует все каналы из пула
+- superjob_source.py — официальный API SuperJob (платно, ~72 000 ₽/мес)
+- superjob_scraper_source.py — бесплатный скрапер публичного поиска резюме через Vision (антидетект-браузер, Playwright по CDP)
+- linkedin_source.py — неофициальная библиотека linkedin-api, логин email/пароль
+- hh_source.py — официальный OAuth API hh.ru, нужна платная «База резюме»
+- hh_scraper_source.py — бесплатный скрапер публичного поиска резюме hh.ru, свой отдельный Vision-профиль
 
-5. Авторизуйте Telegram-аккаунт компании (один раз, интерактивно — запросит
-   номер телефона, код из Telegram и, если включена, 2FA-пароль):
+Доступ
 
-   ```bash
-   python scripts/telegram_login.py
-   ```
+Одна роль, без иерархии — просто email/пароль. Self-signup нет, пользователей создаёт CLI-скрипт:
+python scripts/create_user.py email "Имя" пароль
 
-   Сессия сохранится в файл `TELEGRAM_SESSION_PATH` (по умолчанию
-   `./telegram_session.session`) — не коммитьте его, он даёт полный доступ
-   к аккаунту.
+Переменные окружения (ключевые)
 
-6. Создайте первого HR-пользователя:
-
-   ```bash
-   python scripts/create_user.py hr@company.com "Имя Фамилия" пароль
-   ```
-
-7. Запустите приложение:
-
-   ```bash
-   uvicorn app.main:app --reload
-   ```
-
-   Или через Docker: `docker compose up --build`.
-
-### Запуск без Docker (SQLite, для локальной разработки/проверки)
-
-Если не хочется поднимать Postgres, можно временно указать SQLite в `.env`:
-
-```
-DATABASE_URL=sqlite:///./hrparser.db
-```
-
-Дальше — те же шаги 3–7 (venv, `alembic upgrade head`, `telegram_login.py`,
-`create_user.py`, `uvicorn app.main:app --reload`), Docker не требуется вообще.
-Это удобно для проверки UI/логики, но для реальной эксплуатации 10+
-одновременных HR используйте PostgreSQL, как указано в ТЗ (SQLite не держит
-конкурентную запись так же надёжно).
-
-Откройте http://localhost:8000, войдите, создайте поиск (название + ключевые
-слова через запятую) на странице «Поиски», добавьте туда Telegram-каналы
-(username без @, аккаунт компании должен состоять в этих каналах/иметь к ним
-доступ). Фоновая задача раз в `POLL_INTERVAL_SECONDS` секунд обойдёт активные
-поиски, найдёт новые сообщения по ключевым словам и добавит их в ленту.
-
-## Модель данных
-
-- `users` — HR-пользователи (единая роль, без иерархии прав).
-- `search_queries` — поиск (название, ключевые слова, статус active/paused/closed).
-- `telegram_channels` — Telegram-каналы, привязанные к поиску, с указателем
-  последнего просмотренного сообщения (`last_message_id`).
-- `candidates` — уникальный кандидат (дедуп по sender_id или fuzzy-схожести
-  текста через rapidfuzz), хранит текущий статус (общий на всю команду).
-- `candidate_entries` — история появлений кандидата (каждое новое совпадающее
-  сообщение — новая запись; `is_update=True`, если это повтор того же кандидата).
-- `comments` — комментарии HR под карточкой кандидата.
-
-Удаление кандидата (`POST /candidates/{id}/delete`) — полное каскадное удаление
-записей/комментариев (право на удаление персональных данных).
-
-## Что сознательно не сделано на этом этапе
-
-hh.ru/SuperJob/LinkedIn, AI-классификация релевантности, экспорт в Excel,
-уведомления, диффы текста при обновлении анкеты, сложные роли доступа —
-всё это следующие этапы по ТЗ.
-
-## Проверено / не проверено
-
-- Импорт всех модулей приложения, синтаксис — проверено (`python -m py_compile`).
-- Установка зависимостей в venv — проверено, ставятся без ошибок.
-- Реальный запуск против PostgreSQL и `alembic upgrade head` — **не проверено**
-  в этой среде (нет доступа к Docker daemon / нет локального Postgres). Миграция
-  написана вручную и соответствует моделям SQLAlchemy; перед первым боевым
-  запуском рекомендуется прогнать `alembic upgrade head` на реальной БД.
-- Реальное подключение к Telegram и сбор сообщений — не проверено (нужен
-  реальный аккаунт и API-ключи).
+- SECRET_KEY — подпись сессионных cookie
+- DATABASE_URL — Postgres (прод) или SQLite (локально)
+- TELEGRAM_API_ID / TELEGRAM_API_HASH — my.telegram.org, плюс разовый scripts/telegram_login.py
+- SUPERJOB_CLIENT_ID/SECRET, SUPERJOB_LOGIN/PASSWORD — платный API SuperJob
+- LINKEDIN_EMAIL/PASSWORD — неофициальный доступ
+- HH_CLIENT_ID/SECRET, HH_ACCESS_TOKEN/REFRESH_TOKEN — OAuth hh.ru
+- HH_REQUEST_DELAY_SECONDS, HH_MAX_SEARCHES_PER_CYCLE — защита hh.ru-аккаунта от бана
+- VISION_API_HOST/PORT/TOKEN, VISION_FOLDER_ID/PROFILE_ID — скрапер SuperJob через Vision
+- HH_VISION_FOLDER_ID/PROFILE_ID, HH_SCRAPER_CAPTCHA_WAIT_SECONDS — скрапер hh.ru через Vision
+- POLL_INTERVAL_SECONDS, DEDUP_SIMILARITY_THRESHOLD — частота опроса, порог дедупа
